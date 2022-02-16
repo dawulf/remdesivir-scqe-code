@@ -6,7 +6,11 @@ library(KRLS)
 library(xgboost)
 library(caret)
 
-### Our outcome is mortality within Y days, and our treatment must be given within D days. Set these values here.
+### Our outcome is mortality within Y days, and our treatment must be given 
+### within D days. We do not limit then time to treatment with remdesivir, 
+### as we do not want to exclude treated patients. In the appendix,
+### we show the results do not change when this limit is set to 3 days.
+### Set these values here.
 Ydays <- 28
 Ddays <- 7
 Rdays <- 1e6
@@ -115,22 +119,26 @@ dat.xgb = na.omit(dat[, #none were omitted with these chosen variables
                         "ICU_24hrs","vent_24hrs","death_24hrs",
                         "cq_Ddays", "dexamethasone_Ddays", "IsEDVisit"
                       )])
-dat.xgb.untr <- dat.xgb[dat.xgb$remdesivir_Rdays==0,c(-2,-3,-4)]
+dat.xgb.nouse <- dat.xgb[dat.xgb$highuse==0,c(-2,-3,-4)]
 
 fitControl <- trainControl(method = "repeatedcv", number = 5, 
                            repeats = 3, search = "grid")
-xgbGrid <- expand.grid(eta = c(0.1,0.2,0.3,0.4), 
+xgbGrid <- expand.grid(eta = c(0.02,0.05,0.1,0.2,0.3,0.4), 
                        max_depth = c(2,3,4,5),
-                       gamma = c(0.2,0.3,0.4,0.5),
+                       gamma = c(0.02,0.05,0.1,0.2,0.3,0.4,0.5),
                        nrounds = c(200), 
                        subsample = 1, 
                        colsample_bytree = c(0.8,1),
                        min_child_weight = 1)
-xgbGrid <- expand.grid(eta = c(0.3), max_depth = c(2), gamma = c(0.3), nrounds = c(200), 
-                       subsample = 1, colsample_bytree = c(1), min_child_weight = 1)
-untreated_xgb_cv <- train(deceased_Ydays ~ ., data = dat.xgb.untr, method = "xgbTree", 
-                          trControl = fitControl, tuneGrid = xgbGrid)
-pred_xgb_cv <- predict(untreated_xgb_cv, dat.xgb[,c(-1,-2,-3,-4)])
+#training involves randomness, so to enable reproduction we force the choice
+#that won in our run of the training
+xgbGrid <- expand.grid(eta = 0.1, max_depth = 2, gamma = 0.1, 
+                       nrounds = 200, subsample = 1, 
+                       colsample_bytree = 0.8, min_child_weight = 1)
+nouse_xgb_cv <- train(deceased_Ydays ~ ., data = dat.xgb.nouse, 
+                          method = "xgbTree", trControl = fitControl, 
+                          tuneGrid = xgbGrid)
+pred_xgb_cv <- predict(nouse_xgb_cv, dat.xgb[,c(-1,-2,-3,-4)])
 mean(pred_xgb_cv[dat.xgb$highuse==1])-mean(pred_xgb_cv[dat.xgb$highuse==0])
 
 
